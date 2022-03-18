@@ -396,10 +396,26 @@ class BasePlanning:
         ROI_image = cv2.bitwise_and(img, mask)
         return ROI_image
 
-    def draw_lines(self,img, lines, color=[0, 0, 255], thickness=5): # 선 그리기
+    def draw_lines(self,img, lines, color=[0, 0, 255], thickness=3): # 선 그리기
+        #point_r=[]
+        #point_l = []
         for line in lines:
             for x1,y1,x2,y2 in line:
                 cv2.line(img, (x1, y1), (x2, y2), color, thickness)
+
+
+    # def give_lines(self,img,lines):
+    #     point_r = []
+    #     point_l = []
+    #     point_all = []
+    #     for line in lines:
+    #         for x1,y1,x2,y2 in line:
+    #     #         point_r.append(x1,y1)
+    #     #         point_l.append(x2,y2)
+    #     # point_all = [point_r,point_r]
+    #     # return point_all
+    #             print(line)
+                
 
     def hough_lines(self,img, rho, theta, threshold, min_line_len, max_line_gap): # 허프 변환
         lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len, maxLineGap=max_line_gap)
@@ -412,9 +428,19 @@ class BasePlanning:
         return cv2.addWeighted(initial_img, α, img, β, λ)
 
 
+    def for_ROI(self,img):
+        gray_img = self. grayscale(img) # 흑백이미지로 변환
+        blur_img = self.gaussian_blur(gray_img,7 ) # Blur 효과 #원래 7정도에서도 나름 잘 됐음.
 
+        canny_img = self.canny2(blur_img, 70, 210) # Canny edge 알고리즘
+        vertices = np.array([[(0,479),(0,365), (230,270),(410,270),(639,365),(639,479)]], dtype=np.int32)
+
+        ROI_img = self.region_of_interest(canny_img, vertices) # ROI 설정
+        lines = cv2.HoughLinesP(ROI_img, 1, 1 * np.pi/180, 30, 10, 20)
+        #line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+        return lines
     
-    #이거 조정한 거
+    #이거 조정한 거ROI_img, 1, 1 * np.pi/180, 30, 10, 20
     def wemade(self, img):
         #height = 480 / width = 640 / channel = 3
         gray_img = self. grayscale(img) # 흑백이미지로 변환
