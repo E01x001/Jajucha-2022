@@ -1,3 +1,4 @@
+from re import L
 from jajucha.planning import BasePlanning
 from jajucha.graphics import Graphics
 from jajucha.control import mtx
@@ -80,12 +81,25 @@ class Planning(BasePlanning):
         ##print(ROI)
         myline = self.for_ROI(frontImage)
         #print("myline: ",myline) 
+        proper_myline = []
+        proper_info = []
+        #0을 왼쪽, 1을 오른쪽
         for i in myline:
             #print("i : ",i)
             for j in i:
-                print("j: ", j)
-                print(type(j))
-        myline.sort()
+                if(j[1]<360 or j[3]<360):
+                    if(j[0]<319):  
+                        proper_info.append([np.abs((j[3]-j[1])/(j[2]-j[0])),0])
+                    else:
+                        proper_info.append([np.abs((j[3]-j[1])/(j[2]-j[0])),1])
+        print(proper_info)
+        
+        
+        
+        
+        
+        
+        
         hough = self.wemade(frontImage)
         self.imshow('hough Image', hough)
         # hough = cv2.HoughLines(canny, rho=1, theta=np.pi/180, threshold=100)
@@ -273,7 +287,7 @@ class Planning(BasePlanning):
             for i in range(200, 480, 20):
                 cv2.circle(laneImage, (int(line(i)), i), 5, (255, 0, 0), -1)
             # cv2.circle(frontImage, (int(f(400)), 400), 5, (255, 0, 0), -1)
-            cv2.imshow('Front Lane Image', laneImage)
+            #cv2.imshow('Front Lane Image', laneImage)
             
         else:
             # follow left
@@ -299,7 +313,7 @@ class Planning(BasePlanning):
             for i in range(200, 480, 20):
                 cv2.circle(laneImage, (int(line(i)), i), 5, (255, 0, 0), -1)
             # cv2.circle(frontImage, (int(f(400)), 400), 5, (255, 0, 0), -1)
-            cv2.imshow('Front Lane Image', laneImage)
+            #cv2.imshow('Front Lane Image', laneImage)
         
         steer =  0.5 * e  -3
         if self.vars.fixedSteer==1:
