@@ -62,119 +62,119 @@ class LaneDetector:
         return
         cv2.imshow(self.name + name, img)
 
-    def findLines(self, img):
-        """undistorted image => lines"""
-        # Image Transformation
-        l = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)[:, :, 1]
-        blur = cv2.bilateralFilter(l, 7, 10, 20)
-        # edge = cv2.Canny(blur, 300, 500)
-        edge = cv2.Canny(blur, 200, 400)
-        warp = self.cam.warpImg(edge)
-        self.imshow('warp', warp)
+    # def findLines(self, img):
+    #     """undistorted image => lines"""
+    #     # Image Transformation
+    #     l = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)[:, :, 1]
+    #     blur = cv2.bilateralFilter(l, 7, 10, 20)
+    #     # edge = cv2.Canny(blur, 300, 500)
+    #     edge = cv2.Canny(blur, 200, 400)
+    #     warp = self.cam.warpImg(edge)
+    #     self.imshow('warp', warp)
 
-        # Histogram Search
-        histogram = np.sum(warp, axis=0)
-        histogram = self.smooth(histogram, 20)
-        histogram_near = np.sum(warp[270:], axis=0)
-        histogram_near = self.smooth(histogram_near, 20)
-        maxima, = argrelextrema(histogram, np.greater)
-        maxima_near, = argrelextrema(histogram_near, np.greater)
-        maxima = sorted(np.concatenate((maxima, maxima_near)))
-        maxima = np.delete(maxima, np.argwhere(np.ediff1d(maxima) < 30) + 1)
-        maxima = np.delete(maxima, np.where(np.isin(maxima, maxima_near)))
-        maxima = sorted(maxima_near, key=lambda x: abs(x - 250)) + sorted(maxima, key=lambda x: abs(x - 250))
-        # print(maxima_near, maxima)
-        # Sliding Windows
-        height = warp.shape[0]
-        pts = warp.nonzero()
-        self.explored = []
-        result = []
-        aux = warp.copy()
-        for start_x in maxima:
-            line_points = self.follow_line(height, pts, start_x, aux=aux)
-            # print(line_points)
-            if line_points is not None:
-                line_points, centers = line_points
-                line = self.cam.unWarpPts(line_points)
-                centers = self.cam.unWarpPts(np.array(centers, dtype=np.float32))
-                result.append((line_points, line, centers))
-        self.imshow('aux', aux)
-        result.sort(key=lambda x: x[0][0, 0])
-        result = [u[2] for u in result]
-        return result
+    #     # Histogram Search
+    #     histogram = np.sum(warp, axis=0)
+    #     histogram = self.smooth(histogram, 20)
+    #     histogram_near = np.sum(warp[270:], axis=0)
+    #     histogram_near = self.smooth(histogram_near, 20)
+    #     maxima, = argrelextrema(histogram, np.greater)
+    #     maxima_near, = argrelextrema(histogram_near, np.greater)
+    #     maxima = sorted(np.concatenate((maxima, maxima_near)))
+    #     maxima = np.delete(maxima, np.argwhere(np.ediff1d(maxima) < 30) + 1)
+    #     maxima = np.delete(maxima, np.where(np.isin(maxima, maxima_near)))
+    #     maxima = sorted(maxima_near, key=lambda x: abs(x - 250)) + sorted(maxima, key=lambda x: abs(x - 250))
+    #     # print(maxima_near, maxima)
+    #     # Sliding Windows
+    #     height = warp.shape[0]
+    #     pts = warp.nonzero()
+    #     self.explored = []
+    #     result = []
+    #     aux = warp.copy()
+    #     for start_x in maxima:
+    #         line_points = self.follow_line(height, pts, start_x, aux=aux)
+    #         # print(line_points)
+    #         if line_points is not None:
+    #             line_points, centers = line_points
+    #             line = self.cam.unWarpPts(line_points)
+    #             centers = self.cam.unWarpPts(np.array(centers, dtype=np.float32))
+    #             result.append((line_points, line, centers))
+    #     self.imshow('aux', aux)
+    #     result.sort(key=lambda x: x[0][0, 0])
+    #     result = [u[2] for u in result]
+    #     return result
 
-    def follow_line(self, height, pts, start_x, windows=20, half_width=25, thresh=30, aux=None):
-        # Idea from https://www.haidynmcleod.com/driving-lane-detection
-        for x_range in self.explored:
-            if x_range[0] < start_x < x_range[1]:
-                return
-        h = height // windows
-        pts_y = pts[0]
-        pts_x = pts[1]
-        cur_x = start_x
-        point_ids = []
-        dx = 0
-        cnt = 0
-        last_x = None
-        min_x = start_x
-        max_x = start_x
-        min_y = height
-        max_y = -1
-        centers = []
-        skip = -1
-        for window in range(windows):
-            y0 = height - (window + 1) * h
-            y1 = height - window * h
-            x0 = cur_x - half_width
-            x1 = cur_x + half_width
-            if aux is not None:
-                cv2.rectangle(aux, (int(x0), int(y0)), (int(x1), int(y1)),
-                              (255 * (window / windows), 255 * (windows - window) / windows, 0), 2)
-            pts_in_window, = ((y0 <= pts_y) & (pts_y < y1) & (x0 <= pts_x) & (pts_x < x1)).nonzero()
-            point_ids.append(pts_in_window)
-            if len(pts_in_window) > thresh:
-                cur_x = np.mean(pts_x[pts_in_window])
-                for x_range in self.explored:
-                    if x_range[0] < cur_x < x_range[1]:
-                        break
-                centers.append((cur_x, (y0 + y1) / 2))
-                if last_x is not None:
-                    dx = cur_x - last_x
-                last_x = cur_x
-                cnt += 1
-                if min_y > y0:
-                    min_y = y0
-                if max_y < y1:
-                    max_y = y1
-                if min_x > cur_x:
-                    min_x = cur_x
-                if max_x < cur_x:
-                    max_x = cur_x
-                skip = 0
-            else:
-                last_x = None
-                cur_x += dx
-                if skip >= 0:
-                    skip += 1
-                if skip > 2:
-                    break
+    # def follow_line(self, height, pts, start_x, windows=20, half_width=25, thresh=30, aux=None):
+    #     # Idea from https://www.haidynmcleod.com/driving-lane-detection
+    #     for x_range in self.explored:
+    #         if x_range[0] < start_x < x_range[1]:
+    #             return
+    #     h = height // windows
+    #     pts_y = pts[0]
+    #     pts_x = pts[1]
+    #     cur_x = start_x
+    #     point_ids = []
+    #     dx = 0
+    #     cnt = 0
+    #     last_x = None
+    #     min_x = start_x
+    #     max_x = start_x
+    #     min_y = height
+    #     max_y = -1
+    #     centers = []
+    #     skip = -1
+    #     for window in range(windows):
+    #         y0 = height - (window + 1) * h
+    #         y1 = height - window * h
+    #         x0 = cur_x - half_width
+    #         x1 = cur_x + half_width
+    #         if aux is not None:
+    #             cv2.rectangle(aux, (int(x0), int(y0)), (int(x1), int(y1)),
+    #                           (255 * (window / windows), 255 * (windows - window) / windows, 0), 2)
+    #         pts_in_window, = ((y0 <= pts_y) & (pts_y < y1) & (x0 <= pts_x) & (pts_x < x1)).nonzero()
+    #         point_ids.append(pts_in_window)
+    #         if len(pts_in_window) > thresh:
+    #             cur_x = np.mean(pts_x[pts_in_window])
+    #             for x_range in self.explored:
+    #                 if x_range[0] < cur_x < x_range[1]:
+    #                     break
+    #             centers.append((cur_x, (y0 + y1) / 2))
+    #             if last_x is not None:
+    #                 dx = cur_x - last_x
+    #             last_x = cur_x
+    #             cnt += 1
+    #             if min_y > y0:
+    #                 min_y = y0
+    #             if max_y < y1:
+    #                 max_y = y1
+    #             if min_x > cur_x:
+    #                 min_x = cur_x
+    #             if max_x < cur_x:
+    #                 max_x = cur_x
+    #             skip = 0
+    #         else:
+    #             last_x = None
+    #             cur_x += dx
+    #             if skip >= 0:
+    #                 skip += 1
+    #             if skip > 2:
+    #                 break
 
-        point_ids = np.concatenate(point_ids)
-        if len(point_ids) < 100 or cnt < 5:
-            return
-        x = pts_x[point_ids]
-        y = pts_y[point_ids]
-        try:
-            fit = np.polyfit(y, x, 2)
-            f = np.poly1d(fit)
-            line_y = np.arange(min_y, max_y + 15, 15)
-            line_x = f(line_y)
-            # print(line_x)
-            self.explored.append((min_x - half_width / 2, max_x + half_width / 2))
-            return np.column_stack((np.array(line_x, dtype=np.int), np.array(line_y, dtype=np.int))), centers
-        except:
-            traceback.print_exc()
-            pass
+    #     point_ids = np.concatenate(point_ids)
+    #     if len(point_ids) < 100 or cnt < 5:
+    #         return
+    #     x = pts_x[point_ids]
+    #     y = pts_y[point_ids]
+    #     try:
+    #         fit = np.polyfit(y, x, 2)
+    #         f = np.poly1d(fit)
+    #         line_y = np.arange(min_y, max_y + 15, 15)
+    #         line_x = f(line_y)
+    #         # print(line_x)
+    #         self.explored.append((min_x - half_width / 2, max_x + half_width / 2))
+    #         return np.column_stack((np.array(line_x, dtype=np.int), np.array(line_y, dtype=np.int))), centers
+    #     except:
+    #         traceback.print_exc()
+    #         pass
 
     @staticmethod
     def smooth(x, window_len=11, window='hanning'):
@@ -342,7 +342,7 @@ class BasePlanning:
         img2 = img.copy()
         for i, line in enumerate(lines):
             for point in line:
-                cv2.circle(img2, tuple(point), 3, self.colors[i % 7], -1)
+                cv2.circle(img2, tuple([int(point[0]), int(point[0])]), 3, self.colors[i % 7], -1)
         img2, lights = self.FrontLightDetector.detect(img, img2)
         self.graphics.setFrontImage2(img2)
         return lines, lights
@@ -353,7 +353,7 @@ class BasePlanning:
         lines = self.RearLaneDetector.findLines(img)
         for i, line in enumerate(lines):
             for point in line:
-                cv2.circle(img2, tuple(point), 3, self.colors[i % 7], -1)
+                cv2.circle(img2, tuple([int(point[0]), int(point[0])]), 3, self.colors[i % 7], -1)
         # img2, lights = self.RearLightDetector.detect(img, img2)
         self.graphics.setRearImage2(img2)
         return lines
@@ -365,12 +365,6 @@ class BasePlanning:
         steer = 0
         velocity = 0
         return steer, velocity
-
-    def canny(self, img, par1=200, par2=400):
-        l = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)[:, :, 1]
-        blur = cv2.bilateralFilter(l, 7, 10, 20)
-        edge = cv2.Canny(blur, par1, par2)
-        return edge
     
     def canny2(self, img, low_threshold, high_threshold): # Canny 알고리즘
         return cv2.Canny(img, low_threshold, high_threshold)
@@ -418,25 +412,25 @@ class BasePlanning:
                 
 
     def hough_lines(self,img, rho, theta, threshold, min_line_len, max_line_gap): # 허프 변환
-        lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len, maxLineGap=max_line_gap)
+        lines = cv2.HoughLinesP(img, rho, theta, threshold,  minLineLength=min_line_len, maxLineGap=max_line_gap)
         line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
         self.draw_lines(line_img, lines)
 
         return line_img
 
-    def weighted_img(self,img, initial_img, α=1, β=1., λ=0.): # 두 이미지 operlap 하기
-        return cv2.addWeighted(initial_img, α, img, β, λ)
+    def weighted_img(self,img, initial_img, alpha=1, beta=1., lam=0.): # 두 이미지 operlap 하기
+        return cv2.addWeighted(initial_img, alpha, img, beta, lam)
 
 
     def for_ROI(self,img):
         gray_img = self. grayscale(img) # 흑백이미지로 변환
-        blur_img = self.gaussian_blur(gray_img,7 ) # Blur 효과 #원래 7정도에서도 나름 잘 됐음.
+        blur_img = self.gaussian_blur(gray_img,9 ) # Blur 효과 #원래 7정도에서도 나름 잘 됐음.
 
         canny_img = self.canny2(blur_img, 70, 210) # Canny edge 알고리즘
-        vertices = np.array([[(0,479),(0,365), (230,270),(410,270),(639,365),(639,479)]], dtype=np.int32)
+        vertices = np.array([[(0,479),(0,380),(639,380),(639,479)]], dtype=np.int32)
 
         ROI_img = self.region_of_interest(canny_img, vertices) # ROI 설정
-        lines = cv2.HoughLinesP(ROI_img, 1, 1 * np.pi/180, 30, 10, 20)
+        lines = cv2.HoughLinesP(ROI_img, 1, 1 * np.pi/180, 30, minLineLength=10, maxLineGap=20)
         #line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
         return lines
     
@@ -445,25 +439,11 @@ class BasePlanning:
         #height = 480 / width = 640 / channel = 3
         gray_img = self. grayscale(img) # 흑백이미지로 변환
         blur_img = self.gaussian_blur(gray_img,7 ) # Blur 효과 #원래 7정도에서도 나름 잘 됐음.
-        # cv2.imshow('blur', blur_img)
-        # cv2.waitKey(0)
         canny_img = self.canny2(blur_img, 70, 210) # Canny edge 알고리즘
-        # cv2.imshow('canny', canny_img)
-        # cv2.imshow('1', self.image)
-        # cv2.waitKey(0)
-
-        # vertices = np.array([[(0,270),(639,270), (639,479),(0,479) ]], dtype=np.int32)
-        vertices = np.array([[(0,479),(0,365), (230,270),(410,270),(639,365),(639,479)]], dtype=np.int32)
-        #240, 310
-        #(0,0) / (639,0)
-        #(0,240) / (639,240) / (0,479) / (639,479)
-        #(480 620)
-        #print(vertices)
+        vertices = np.array([[(0,479),(0,380),(639,380),(639,479)]], dtype=np.int32)
         ROI_img = self.region_of_interest(canny_img, vertices) # ROI 설정
-        # cv2.imshow('ROI',ROI_img) # 결과 이미지 출력
-        # cv2.waitKey(0) 
-
         hough_img = self.hough_lines(ROI_img, 1, 1 * np.pi/180, 30, 10, 20) # 허프 변환
+        
 
         result = self.weighted_img(hough_img, img) # 원본 이미지에 검출된 선 overlap
         # cv2.imshow('result',result) # 결과 이미지 출력
