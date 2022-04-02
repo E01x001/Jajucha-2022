@@ -1,0 +1,177 @@
+from re import L
+from jajucha.planning import BasePlanning
+from jajucha.graphics import Graphics
+from jajucha.control import mtx
+import cv2
+import numpy as np
+import time
+
+#아래 주석은 무시
+#만약에 카운트가 두번 돼서 두번 80으로 돌게 되면 초를 줄이는 코드
+
+''' ===============================
+이 코딩은 다음과 같은 특징을 가졌습니다. 코딩 완성의 우선순위는 다음과 같습니다.
+참고로 이 코딩이 정답은 아닙니다!!! 여러분은 더 좋은 코딩을 만들 수 있습니다.
+여기서 제시하는 코딩을 배우면서 더 적합한 알고리즘을 만드는 것이 목표입니다!!!       
+
+(1) "차선 선택"에서
+    예) if frontLines[i][0, 1] < 460: # [No 460]은 적절한 값이 아닙니다!!
+    이 의미는 460이란 값이 적절한 값이 아님을 의미합니다. 이때 표시를 [No 460]이라고 하겠습니다.
+    즉 [No 460]이라는 뜻은 그 행의 460이라는 값을 적절한 값으로 넣으라는 의미입니다.
+    (1) 460으로 등장하는 [No 460]은 적절한 값으로 고쳐주세요.
+        이 값을 적절한 값으로 찾으면 추세선의 점선이 보입니다.
+    (2) 380으로 등장하는 [No 360]은 적절한 값으로 고쳐주세요.
+        이 값은 가장 잘 등장하는 값으로 중앙에서 치우친 정도를 파악합니다.
+    (3) 143으로 등장하는 [No 143]은 적절한 값으로 고쳐주세요.
+        우차선으로 기준으로 중앙값에 해당하는 픽셀차이는 얼마일까요?
+    (4) 143으로 등장하는 [No 143]은 적절한 값으로 고쳐주세요.
+        좌차선을 기준으로 중앙값에 해당하는 픽셀차이는 얼마일까요?
+    (5) 2으로 등장하는 [No 2]은 적절한 값으로 고쳐주세요.
+        픽셀차이와 조향값 차이를 해결하는 1차식의 기울기에 해당하는 값은?
+    (6) 3으로 등장하는 [No 3]은 적절한 값으로 고쳐주세요.
+        픽셀차이와 조향값 차이를 해결하는 1차식의 상수항에 해당하는 값은?
+    (7) 10으로 등장하는 [No 10]은 적절한 값으로 고쳐주세요.
+        자주차 속력의 적절한 값은? 상수가 좋을까? 변수가 좋을까?
+
+(2) "라이다 처리" 는 직접 여러분들이 코딩을 완성해야 합니다.
+
+(3) "신호등 처리?"라고 표현된 곳은
+    i) [No 1]은 적절한 값이 아닙니다! => 적절한 값 찾아야 합니다.
+    ii) 차가 멈추어 있을 때의 코딩이 아직 없습니다. => 적절한 코딩을 완성해야 합니다.
+
+
+'''
+
+class Planning(BasePlanning):
+    def __init__(self, graphics):
+        super().__init__(graphics)
+        # --------------------------- # 초기 변수를 설정하는 함수
+        self.vars.redCnt = 0  # 빨강불 카운트 변수 설정
+        self.vars.greenCnt = 5  # 녹색불 카운트 변수 설정
+        self.vars.stop = True # 차가 처음에 정지해 있음을 정의한 변수 설정
+        self.vars.steer = 0  # 조향값은 0인 상태로 변수 설정
+        self.vars.velocity = 0  # 속도도 0인 상태로 변수 설정
+        self.vars.noLine = 0
+        self.vars.controls = 1
+        self.vars.control_in_noline=True
+        self.vars.fixedSteer=0
+        self.vars.countNoLine = 0 #사용안함
+
+    def process(self, t, frontImage, rearImage, frontLidar, rearLidar):
+        """
+        cv2.show
+        자주차의 센서 정보를 바탕으로 조향과 속도를 결정하는 함수
+        t: 주행 시점으로부터의 시간 (초)
+        frontImage: 전면 카메라 캘리된 이미지(640X480)
+        rearImage: 후면 카메라 캘리된 이미지
+        frontLidar: 전면 거리 센서 (mm), 0은 오류를 의미함, 0<x<2000 (2m 최대거리)
+        rearLidar: 후면 거리 센서 (mm), 0은 오류를 의미함
+        """
+        frontLines, frontObject = self.processFront(frontImage)  # 전면 카메라 이미지 처리
+        # frontLines = [[x1,y1],[x2,y2],[x3,y3], … ] , [[x1,y1], [x2,y2], … ]
+        # frontLines[0]이 가장 왼쪽 차선, 빨(0), 주(1), 노(2), 초(3), 파(4), 남(5), 보(6)
+        rearLines= self.processRear(rearImage) # 후면 카메라 이미지 처리
+
+        # # canny image 출력 
+        canny = self.canny(frontImage)
+        # self.imshow('Canny Image', canny)
+       
+        #hough image 출력
+        #ROI=self.for_ROI(frontImage)
+        ##print(ROI)
+        myline = self.for_ROI(frontImage)
+        print(myline)
+        tangents = [[0], [0]]
+        line_num = [0, 0]
+        proper_tangent = [-1, -1]
+
+        #0을 왼쪽, 1을 오른쪽
+        for i in myline:
+            #print("i : ",i)
+            for j in i:
+                tangent = (j[3]-j[1])/(j[2]-j[0])
+                if(tangent< -0.26):  
+                    tangents[0] += np.abs(tangent)
+                    line_num[0] += 1
+                        
+                elif(0.26 < tangent):
+                    tangents[1] += np.abs(tangent)
+                    line_num[1] += 1
+
+        for i in range(0, 2, 1) :
+            if line_num[i] != 0 :
+                tangents[i] /= line_num[i]
+                proper_tangent[i] = tangents[i]
+        print(proper_tangent)
+        
+        
+        hough = self.wemade(frontImage)
+        self.imshow('hough Image', hough)
+        # hough = cv2.HoughLines(canny, rho=1, theta=np.pi/180, threshold=100)
+        # cv2.imshow('Hough Image', hough)
+        # hough = cv2.HoughLines(canny,1,np.pi/180,100)
+        # cv2.imshow('Hough Image', hough)
+        #분석을 위한 y값 설정 
+        x = 360
+        y = 479
+        while y >= 0:
+            if canny[y, x] > 0:
+                break
+            y -= 1
+        # #print('479-y=', 479-y)
+
+        global starttime
+        #신호등 처리?
+        reds, greens = frontObject # reds : n*3의 크기
+        # reds: numpy array([[x1,y1,반지름], [x2,y2,반지름], ...])
+        if reds: # 빨간불이면 
+            self.vars.redCnt += 1
+        else:
+            self.vars.redCnt = 0
+        if greens:
+            self.vars.greenCnt += 1
+        else:
+            self.vars.greenCnt = 0
+
+        if self.vars.redCnt >= 6:    # 5는 임의로 넣어둠 / 직진 주행이 완성되면 그 속도에 맞춰 경험적으로 구하기 (2021.02.03)
+            self.vars.greenCnt = 0     # 빨강불이면 녹색불 카운트는 0
+            self.vars.stop = True  
+            return 0,0
+        if self.vars.greenCnt >= 2: #얘도 임의 (02.03)
+            self.vars.redCnt = 0
+            self.vars.stop = False
+        
+        # # 라이다 처리
+        if 0 < frontLidar < 200:
+            #print('lidar stop')
+            return 0, 0      
+
+        # 차선 선택
+        center_x = mtx[0, 2]       # 이미지의 가운데, center_x=360 부근의 값을 가지게 됩니다.
+        # #print ('center_x=', center_x)
+        line = None
+        frontLines.sort(key=lambda x:x[0, 1], reverse=True)
+        
+
+        # if (self.vars.steer < 90 or self.vars.steer > -90):
+        #     self.vars.steer = steer
+        #     self.vars.velocity = velocity
+        #     return self.vars.steer, self.vars.velocity
+        # else:
+        #     return self.vars.steer, self.vars.velocity
+        return self.vars.steer, self.vars.velocity
+
+    # def get_steer_from_tangent(tangent) :
+    #     avg_tangent = 0 #기울기 평균
+    #     direction = [0, 0] #방향 개수
+    #     for i in tangent :
+
+
+        
+
+
+
+if __name__ == "__main__":
+    g = Graphics(Planning) # 자주차 컨트롤러 실행
+    g.root.mainloop() # 클릭 이벤트 처리
+    g.exit() # 자주차 컨트롤러 종료
